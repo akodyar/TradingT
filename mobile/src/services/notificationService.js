@@ -104,11 +104,13 @@ export async function sendBotStatusNotification({ signal, strategyName, lastChec
   const signalEmoji = signal === 'BUY' ? '🟢' : signal === 'SELL' ? '🔴' : '🟡';
   await Notifications.scheduleNotificationAsync({
     content: {
-      title: `${signalEmoji} Bot Running — Signal: ${signal}`,
-      body: `Strategy: ${strategyName} · Last check: ${lastCheck}`,
+      title: `${signalEmoji} Bot 24/7 Active — Signal: ${signal}`,
+      body: `Strategy: ${strategyName} · Last evaluated: ${lastCheck}`,
       data: { type: 'STATUS', signal },
       sound: false,
       badge: 0,
+      sticky: true,
+      autoDismiss: false,
     },
     trigger: null,
     identifier: 'bot-heartbeat',

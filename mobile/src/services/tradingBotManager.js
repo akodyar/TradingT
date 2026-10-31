@@ -15,6 +15,13 @@ import {
   sendSellNotification,
 } from './notificationService.js';
 import { syncBackgroundState } from './backgroundTask.js';
+import {
+  loadBotStateFromStorage,
+  persistBotCredentials,
+  persistBotConfig,
+  persistBotState,
+  persistNewTrade,
+} from './storageService.js';
 
 // Bot in-app state
 let botState = {
@@ -32,25 +39,72 @@ let botState = {
   },
 };
 
+let _isInitialized = false;
+
+/**
+ * Initialize bot state from device persistent storage.
+ */
+export async function initBotManager() {
+  if (_isInitialized) return botState;
+  try {
+    const loaded = await loadBotStateFromStorage();
+    botState = {
+      ...botState,
+      ...loaded,
+    };
+    _isInitialized = true;
+    syncBackgroundState({
+      credentials: botState.credentials,
+      symbol: botState.symbol,
+      interval: botState.interval,
+      quoteOrderSize: botState.quoteOrderSize,
+      strategyId: botState.currentStrategyId,
+      position_qty: botState.position_qty,
+      isEngineEnabled: botState.isEngineRunning,
+    });
+  } catch (e) {
+    console.warn('[BotManager] Storage load error:', e.message);
+  }
+  return botState;
+}
+
 export function getBotState() {
   return botState;
 }
 
-export function setStrategy(strategyId) {
+export async function setStrategy(strategyId) {
   if (STRATEGIES[strategyId]) {
     botState.currentStrategyId = strategyId;
+    await persistBotConfig({
+      isEngineRunning: botState.isEngineRunning,
+      currentStrategyId: botState.currentStrategyId,
+      symbol: botState.symbol,
+      interval: botState.interval,
+      quoteOrderSize: botState.quoteOrderSize,
+    });
+    syncBackgroundState({ strategyId });
   }
 }
 
-export function updateBotCredentials(apiKey, apiSecret) {
+export async function updateBotCredentials(apiKey, apiSecret) {
   botState.credentials = {
     apiKey: apiKey || DEFAULT_API_KEY,
     apiSecret: apiSecret || DEFAULT_API_SECRET,
   };
+  await persistBotCredentials(botState.credentials);
+  syncBackgroundState({ credentials: botState.credentials });
 }
 
-export function setEngineRunning(isRunning) {
+export async function setEngineRunning(isRunning) {
   botState.isEngineRunning = isRunning;
+  await persistBotConfig({
+    isEngineRunning: botState.isEngineRunning,
+    currentStrategyId: botState.currentStrategyId,
+    symbol: botState.symbol,
+    interval: botState.interval,
+    quoteOrderSize: botState.quoteOrderSize,
+  });
+  syncBackgroundState({ isEngineEnabled: isRunning });
 }
 
 /**
@@ -65,13 +119,16 @@ export async function executeManualBuy(quoteAmount) {
   if (boughtQty > 0) {
     const currentQty = parseFloat(botState.position_qty || '0');
     botState.position_qty = (currentQty + boughtQty).toString();
-    botState.trades.unshift({
+    const newTrade = {
       id: res.orderId,
       side: 'BUY',
       qty: boughtQty,
       price: fillPrice,
       time: new Date().toLocaleTimeString(),
-    });
+    };
+    botState.trades.unshift(newTrade);
+    await persistNewTrade(newTrade);
+    await persistBotState({ position_qty: botState.position_qty, last_candle: botState.last_candle });
     // 🔔 Notify
     await sendBuyNotification({
       symbol,
@@ -105,13 +162,16 @@ export async function executeManualSell(quantity) {
   if (soldQty > 0) {
     const currentQty = parseFloat(botState.position_qty || '0');
     botState.position_qty = Math.max(0, currentQty - soldQty).toString();
-    botState.trades.unshift({
+    const newTrade = {
       id: res.orderId,
       side: 'SELL',
       qty: soldQty,
       price: fillPrice,
       time: new Date().toLocaleTimeString(),
-    });
+    };
+    botState.trades.unshift(newTrade);
+    await persistNewTrade(newTrade);
+    await persistBotState({ position_qty: botState.position_qty, last_candle: botState.last_candle });
     // 🔔 Notify
     await sendSellNotification({
       symbol,
@@ -130,6 +190,7 @@ export async function executeManualSell(quantity) {
  * Fetch and assemble all dashboard overview data directly from Binance
  */
 export async function getDashboardOverview() {
+  await initBotManager();
   const symbol = botState.symbol;
   const interval = botState.interval;
   const credentials = botState.credentials;
@@ -358,13 +419,16 @@ async function runAutomatedTradeCycle({
 
         if (boughtQty > 0) {
           botState.position_qty = boughtQty.toString();
-          botState.trades.unshift({
+          const newTrade = {
             id: order.orderId,
             side: 'BUY',
             qty: boughtQty,
             price: fillPrice,
             time: new Date().toLocaleTimeString(),
-          });
+          };
+          botState.trades.unshift(newTrade);
+          await persistNewTrade(newTrade);
+          await persistBotState({ position_qty: botState.position_qty, last_candle: candleTime });
           // 🔔 Notify
           await sendBuyNotification({
             symbol,
@@ -387,13 +451,16 @@ async function runAutomatedTradeCycle({
         const remaining = Math.max(0, botPositionQty - soldQty);
 
         botState.position_qty = remaining.toString();
-        botState.trades.unshift({
+        const newTrade = {
           id: order.orderId,
           side: 'SELL',
           qty: soldQty,
           price: fillPrice,
           time: new Date().toLocaleTimeString(),
-        });
+        };
+        botState.trades.unshift(newTrade);
+        await persistNewTrade(newTrade);
+        await persistBotState({ position_qty: botState.position_qty, last_candle: candleTime });
         // 🔔 Notify
         await sendSellNotification({
           symbol,
@@ -407,6 +474,7 @@ async function runAutomatedTradeCycle({
     }
 
     botState.last_candle = candleTime;
+    await persistBotState({ position_qty: botState.position_qty, last_candle: candleTime });
   } catch (err) {
     console.warn('[BOT] Automated cycle error:', err.message);
   }

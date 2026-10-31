@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -11,10 +11,21 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../constants/theme';
 import { getBotState } from '../services/tradingBotManager';
+import { loadBotStateFromStorage } from '../services/storageService';
 
 export default function TradeHistoryModal({ visible, onClose }) {
   const botState = getBotState();
-  const trades = botState.trades || [];
+  const [trades, setTrades] = useState(botState.trades || []);
+
+  useEffect(() => {
+    if (visible) {
+      loadBotStateFromStorage().then((state) => {
+        if (state && state.trades) {
+          setTrades(state.trades);
+        }
+      });
+    }
+  }, [visible]);
 
   const formatPrice = (p) =>
     Number(p || 0).toLocaleString('en-US', {
@@ -46,7 +57,7 @@ export default function TradeHistoryModal({ visible, onClose }) {
               </View>
 
               <Text style={styles.subtitle}>
-                Trades executed by the bot engine this session
+                Autonomous trades executed in foreground & 24/7 background
               </Text>
 
               {trades.length === 0 ? (

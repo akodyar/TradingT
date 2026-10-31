@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -10,6 +10,8 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   ScrollView,
+  Platform,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../constants/theme';
@@ -32,6 +34,16 @@ export default function SettingsModal({ visible, onClose, onRefreshData }) {
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
 
+  useEffect(() => {
+    if (visible) {
+      const state = getBotState();
+      setApiKey(state.credentials.apiKey || DEFAULT_API_KEY);
+      setApiSecret(state.credentials.apiSecret || DEFAULT_API_SECRET);
+      setIsEngineOn(state.isEngineRunning);
+      setTestResult(null);
+    }
+  }, [visible]);
+
   const handleTest = async () => {
     setIsTesting(true);
     setTestResult(null);
@@ -51,11 +63,17 @@ export default function SettingsModal({ visible, onClose, onRefreshData }) {
     }
   };
 
-  const handleSave = () => {
-    updateBotCredentials(apiKey, apiSecret);
-    setEngineRunning(isEngineOn);
+  const handleSave = async () => {
+    await updateBotCredentials(apiKey, apiSecret);
+    await setEngineRunning(isEngineOn);
     if (onRefreshData) onRefreshData();
     onClose();
+  };
+
+  const handleOpenAppSettings = () => {
+    if (Platform.OS === 'android') {
+      Linking.openSettings();
+    }
   };
 
   return (
@@ -171,6 +189,43 @@ export default function SettingsModal({ visible, onClose, onRefreshData }) {
                   </Text>
                 </View>
               )}
+
+              {/* 24/7 Background Trading Setup (Android) */}
+              <View style={styles.bgGuideBox}>
+                <View style={styles.bgGuideHeader}>
+                  <Ionicons name="infinite-outline" size={17} color={COLORS.primary} />
+                  <Text style={styles.bgGuideTitle}>24/7 Background Engine</Text>
+                </View>
+                <Text style={styles.bgGuideText}>
+                  To ensure the bot continues evaluating strategies and executing trades even when this app is closed or terminated:
+                </Text>
+                <View style={styles.bgGuideStep}>
+                  <Ionicons name="battery-charging-outline" size={14} color={COLORS.warning} />
+                  <Text style={styles.bgGuideStepText}>
+                    Set Battery Optimization to <Text style={{ color: COLORS.success, fontWeight: '700' }}>Unrestricted</Text> so Android never sleeps the engine.
+                  </Text>
+                </View>
+                <View style={styles.bgGuideStep}>
+                  <Ionicons name="notifications-outline" size={14} color={COLORS.primary} />
+                  <Text style={styles.bgGuideStepText}>
+                    Keep Notifications enabled to receive instant BUY/SELL execution alerts.
+                  </Text>
+                </View>
+                <View style={styles.bgGuideStep}>
+                  <Ionicons name="lock-closed-outline" size={14} color={COLORS.textSecondary} />
+                  <Text style={styles.bgGuideStepText}>
+                    (Samsung / Xiaomi) In App Switcher, tap the lock icon to prevent system auto-kill.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.batteryBtn}
+                  onPress={handleOpenAppSettings}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="settings-outline" size={14} color="#FFFFFF" />
+                  <Text style={styles.batteryBtnText}>Open Device App Settings</Text>
+                </TouchableOpacity>
+              </View>
 
               {/* Action Buttons */}
               <View style={styles.actionRow}>
@@ -359,6 +414,60 @@ const styles = StyleSheet.create({
   },
   saveBtnText: {
     fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  bgGuideBox: {
+    backgroundColor: COLORS.surfaceSubtle,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  bgGuideHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  bgGuideTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+  },
+  bgGuideText: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    lineHeight: 16,
+    marginBottom: 10,
+  },
+  bgGuideStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  bgGuideStepText: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    flex: 1,
+    lineHeight: 15,
+  },
+  batteryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: COLORS.cardElevated,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 8,
+    paddingVertical: 8,
+    marginTop: 8,
+  },
+  batteryBtnText: {
+    fontSize: 12,
     fontWeight: '700',
     color: '#FFFFFF',
   },

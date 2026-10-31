@@ -17,7 +17,11 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
 
 import { COLORS } from './src/constants/theme';
-import { getDashboardOverview, getBotState } from './src/services/tradingBotManager.js';
+import {
+  getDashboardOverview,
+  getBotState,
+  initBotManager,
+} from './src/services/tradingBotManager.js';
 import {
   requestNotificationPermissions,
 } from './src/services/notificationService.js';
@@ -59,6 +63,9 @@ export default function App() {
   // ── Setup: permissions + background task ──
   useEffect(() => {
     (async () => {
+      // 0. Initialize persistent bot state from disk
+      await initBotManager();
+
       // 1. Request notification permissions
       const granted = await requestNotificationPermissions();
       setNotifPermission(granted);

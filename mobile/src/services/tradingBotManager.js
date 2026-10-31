@@ -86,6 +86,56 @@ export async function setStrategy(strategyId) {
   }
 }
 
+export async function setCandleInterval(interval) {
+  if (interval) {
+    botState.interval = interval;
+    await persistBotConfig({
+      isEngineRunning: botState.isEngineRunning,
+      currentStrategyId: botState.currentStrategyId,
+      symbol: botState.symbol,
+      interval: botState.interval,
+      quoteOrderSize: botState.quoteOrderSize,
+    });
+    syncBackgroundState({ interval });
+  }
+}
+
+export async function setStrategyAndInterval(strategyId, interval) {
+  if (strategyId && STRATEGIES[strategyId]) {
+    botState.currentStrategyId = strategyId;
+  }
+  if (interval) {
+    botState.interval = interval;
+  }
+  await persistBotConfig({
+    isEngineRunning: botState.isEngineRunning,
+    currentStrategyId: botState.currentStrategyId,
+    symbol: botState.symbol,
+    interval: botState.interval,
+    quoteOrderSize: botState.quoteOrderSize,
+  });
+  syncBackgroundState({
+    strategyId: botState.currentStrategyId,
+    interval: botState.interval,
+  });
+}
+
+export async function applyMinimumRiskConfiguration() {
+  botState.currentStrategyId = 'DUAL_MA';
+  botState.interval = '1h';
+  await persistBotConfig({
+    isEngineRunning: botState.isEngineRunning,
+    currentStrategyId: botState.currentStrategyId,
+    symbol: botState.symbol,
+    interval: botState.interval,
+    quoteOrderSize: botState.quoteOrderSize,
+  });
+  syncBackgroundState({
+    strategyId: 'DUAL_MA',
+    interval: '1h',
+  });
+}
+
 export async function updateBotCredentials(apiKey, apiSecret) {
   botState.credentials = {
     apiKey: apiKey || DEFAULT_API_KEY,

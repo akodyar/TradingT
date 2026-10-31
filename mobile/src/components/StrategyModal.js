@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -10,16 +10,37 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../constants/theme';
-import { STRATEGIES } from '../services/strategyEngine';
-import { setStrategy } from '../services/tradingBotManager';
+import {
+  STRATEGIES,
+  CANDLE_INTERVALS,
+  MINIMUM_RISK_CONFIG,
+} from '../services/strategyEngine';
+import {
+  setStrategyAndInterval,
+  setCandleInterval,
+  applyMinimumRiskConfiguration,
+} from '../services/tradingBotManager';
 
 export default function StrategyModal({
   visible,
   onClose,
-  currentStrategyId,
+  currentStrategyId = 'DUAL_MA',
+  currentInterval = '1m',
   allSignals = {},
   onSelectStrategy,
 }) {
+  const [selectedInterval, setSelectedInterval] = useState(currentInterval);
+  const [selectedStrategyId, setSelectedStrategyId] = useState(currentStrategyId);
+  const [riskFilter, setRiskFilter] = useState('ALL');
+
+  useEffect(() => {
+    if (visible) {
+      setSelectedInterval(currentInterval || '1m');
+      setSelectedStrategyId(currentStrategyId || 'DUAL_MA');
+      setRiskFilter('ALL');
+    }
+  }, [visible, currentInterval, currentStrategyId]);
+
   const getSignalBadge = (signal) => {
     switch (signal) {
       case 'BUY':
@@ -31,13 +52,54 @@ export default function StrategyModal({
     }
   };
 
-  const handleSelect = (strategyId) => {
-    setStrategy(strategyId);
+  const getRiskBadgeColor = (riskLevel) => {
+    switch (riskLevel) {
+      case 'LOW':
+        return { bg: 'rgba(16, 185, 129, 0.15)', border: 'rgba(16, 185, 129, 0.4)', text: COLORS.success };
+      case 'LOW-MEDIUM':
+        return { bg: 'rgba(59, 130, 246, 0.15)', border: 'rgba(59, 130, 246, 0.4)', text: COLORS.primary };
+      case 'MEDIUM':
+        return { bg: 'rgba(245, 158, 11, 0.15)', border: 'rgba(245, 158, 11, 0.4)', text: COLORS.warning };
+      case 'HIGH':
+      default:
+        return { bg: 'rgba(239, 68, 68, 0.15)', border: 'rgba(239, 68, 68, 0.4)', text: COLORS.danger };
+    }
+  };
+
+  const handleIntervalChange = async (intervalId) => {
+    setSelectedInterval(intervalId);
+    await setCandleInterval(intervalId);
     if (onSelectStrategy) {
-      onSelectStrategy(strategyId);
+      onSelectStrategy(selectedStrategyId, intervalId);
+    }
+  };
+
+  const handleSelectStrategy = async (strategyId) => {
+    setSelectedStrategyId(strategyId);
+    await setStrategyAndInterval(strategyId, selectedInterval);
+    if (onSelectStrategy) {
+      onSelectStrategy(strategyId, selectedInterval);
     }
     onClose();
   };
+
+  const handleApplyMinimumRisk = async () => {
+    await applyMinimumRiskConfiguration();
+    setSelectedStrategyId('DUAL_MA');
+    setSelectedInterval('1h');
+    if (onSelectStrategy) {
+      onSelectStrategy('DUAL_MA', '1h');
+    }
+    onClose();
+  };
+
+  const filteredStrategies = Object.values(STRATEGIES).filter((strat) => {
+    if (riskFilter === 'ALL') return true;
+    if (riskFilter === 'LOW') return strat.riskLevel === 'LOW' || strat.riskLevel === 'LOW-MEDIUM';
+    if (riskFilter === 'MEDIUM') return strat.riskLevel === 'MEDIUM';
+    if (riskFilter === 'HIGH') return strat.riskLevel === 'HIGH';
+    return true;
+  });
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -49,7 +111,7 @@ export default function StrategyModal({
               <View style={styles.header}>
                 <View style={styles.titleRow}>
                   <Ionicons name="git-branch-outline" size={19} color={COLORS.primary} />
-                  <Text style={styles.title}>Select Trading Strategy</Text>
+                  <Text style={styles.title}>Strategy & Timeframe</Text>
                 </View>
                 <TouchableOpacity
                   onPress={onClose}
@@ -60,15 +122,116 @@ export default function StrategyModal({
               </View>
 
               <Text style={styles.subtitle}>
-                Choose the technical analysis model that generates automated signals and triggers on-chain trades.
+                Select the candle interval and model best aligned with your risk tolerance.
               </Text>
 
-              {/* Strategy Cards List */}
+              {/* ── 1. CANDLE INTERVAL SELECTOR ── */}
+              <View style={styles.sectionBox}>
+                <View style={styles.sectionLabelRow}>
+                  <Ionicons name="time-outline" size={14} color={COLORS.primary} />
+                  <Text style={styles.sectionLabel}>CANDLE TIMEFRAME / INTERVAL</Text>
+                  <Text style={styles.activeIntervalLabel}>Active: {selectedInterval}</Text>
+                </View>
+
+                <View style={styles.intervalGrid}>
+                  {CANDLE_INTERVALS.map((intv) => {
+                    const isSelected = intv.id === selectedInterval;
+                    return (
+                      <TouchableOpacity
+                        key={intv.id}
+                        style={[
+                          styles.intervalChip,
+                          isSelected && styles.intervalChipSelected,
+                          intv.isBestLowRisk && !isSelected && styles.intervalChipRecommended,
+                        ]}
+                        onPress={() => handleIntervalChange(intv.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            styles.intervalChipText,
+                            isSelected && styles.intervalChipTextSelected,
+                          ]}
+                        >
+                          {intv.label}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.intervalSubText,
+                            isSelected && styles.intervalSubTextSelected,
+                          ]}
+                        >
+                          {intv.tag}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* ── 2. MINIMUM RISK RECOMMENDATION BANNER ── */}
+              <View style={styles.minRiskBanner}>
+                <View style={styles.minRiskHeader}>
+                  <View style={styles.minRiskTitleRow}>
+                    <Ionicons name="shield-checkmark" size={16} color={COLORS.success} />
+                    <Text style={styles.minRiskTitle}>Minimum Risk Recommendation</Text>
+                  </View>
+                  <View style={styles.safestTag}>
+                    <Text style={styles.safestTagText}>SAFEST</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.minRiskDesc}>
+                  {MINIMUM_RISK_CONFIG.reason}
+                </Text>
+
+                <TouchableOpacity
+                  style={styles.applyMinRiskBtn}
+                  onPress={handleApplyMinimumRisk}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="flash-outline" size={14} color="#FFFFFF" />
+                  <Text style={styles.applyMinRiskBtnText}>
+                    Apply Best Low-Risk Setup (Dual MA + 1h)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* ── 3. RISK FILTER TABS ── */}
+              <View style={styles.filterRow}>
+                {[
+                  { id: 'ALL', label: 'All Models' },
+                  { id: 'LOW', label: '🛡️ Low Risk' },
+                  { id: 'MEDIUM', label: '⚖️ Medium' },
+                  { id: 'HIGH', label: '⚡ Momentum' },
+                ].map((f) => (
+                  <TouchableOpacity
+                    key={f.id}
+                    style={[
+                      styles.filterTab,
+                      riskFilter === f.id && styles.filterTabActive,
+                    ]}
+                    onPress={() => setRiskFilter(f.id)}
+                  >
+                    <Text
+                      style={[
+                        styles.filterTabText,
+                        riskFilter === f.id && styles.filterTabTextActive,
+                      ]}
+                    >
+                      {f.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* ── 4. STRATEGIES LIST ── */}
               <ScrollView showsVerticalScrollIndicator={false} style={styles.strategyList}>
-                {Object.values(STRATEGIES).map((strat) => {
-                  const isSelected = strat.id === currentStrategyId;
+                {filteredStrategies.map((strat) => {
+                  const isSelected = strat.id === selectedStrategyId;
                   const signalObj = allSignals[strat.id] || { signal: 'HOLD', details: '' };
                   const badge = getSignalBadge(signalObj.signal);
+                  const riskColors = getRiskBadgeColor(strat.riskLevel);
 
                   return (
                     <TouchableOpacity
@@ -77,9 +240,10 @@ export default function StrategyModal({
                         styles.strategyCard,
                         isSelected && styles.strategyCardSelected,
                       ]}
-                      onPress={() => handleSelect(strat.id)}
+                      onPress={() => handleSelectStrategy(strat.id)}
                       activeOpacity={0.7}
                     >
+                      {/* Top Row: Name & Live Signal */}
                       <View style={styles.cardTop}>
                         <View style={styles.cardTitleInfo}>
                           <View style={styles.nameRow}>
@@ -100,7 +264,7 @@ export default function StrategyModal({
                           <Text style={styles.strategyType}>{strat.type}</Text>
                         </View>
 
-                        {/* Live Signal Badge for this strategy */}
+                        {/* Live Signal Badge */}
                         <View style={[styles.signalPill, { backgroundColor: badge.bg }]}>
                           <Ionicons name={badge.icon} size={12} color={badge.color} />
                           <Text style={[styles.signalText, { color: badge.color }]}>
@@ -109,18 +273,50 @@ export default function StrategyModal({
                         </View>
                       </View>
 
+                      {/* Risk Badge & Recommended Timeframe */}
+                      <View style={styles.riskRow}>
+                        <View
+                          style={[
+                            styles.riskBadge,
+                            { backgroundColor: riskColors.bg, borderColor: riskColors.border },
+                          ]}
+                        >
+                          <Text style={[styles.riskBadgeText, { color: riskColors.text }]}>
+                            {strat.riskBadge || strat.riskLevel}
+                          </Text>
+                        </View>
+                        <View style={styles.recIntervalPill}>
+                          <Ionicons name="hourglass-outline" size={11} color={COLORS.textMuted} />
+                          <Text style={styles.recIntervalText}>
+                            Best on: {strat.recommendedInterval || '1h'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Strategy Description */}
                       <Text style={styles.strategyDesc}>{strat.description}</Text>
 
+                      {/* Risk Suitability Note */}
+                      {strat.riskDescription ? (
+                        <View style={styles.riskNoteRow}>
+                          <Ionicons name="information-circle" size={12} color={riskColors.text} />
+                          <Text style={styles.riskNoteText}>
+                            {strat.riskDescription}
+                          </Text>
+                        </View>
+                      ) : null}
+
+                      {/* Live Indicator Signal Details */}
                       {signalObj.details ? (
                         <View style={styles.detailsRow}>
-                          <Ionicons name="information-circle-outline" size={13} color={COLORS.textMuted} />
+                          <Ionicons name="pulse-outline" size={12} color={COLORS.primary} />
                           <Text style={styles.detailsText} numberOfLines={1}>
                             {signalObj.details}
                           </Text>
                         </View>
                       ) : null}
 
-                      {/* Indicators Pills */}
+                      {/* Indicator Pills */}
                       <View style={styles.indicatorsRow}>
                         {strat.indicators.map((ind, i) => (
                           <View key={i} style={styles.indicatorPill}>
@@ -143,18 +339,18 @@ export default function StrategyModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.78)',
+    backgroundColor: 'rgba(0, 0, 0, 0.82)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
+    padding: 14,
   },
   modalContent: {
     width: '100%',
-    maxWidth: 440,
-    maxHeight: '85%',
+    maxWidth: 460,
+    maxHeight: '92%',
     backgroundColor: COLORS.card,
     borderRadius: 20,
-    padding: 20,
+    padding: 18,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
     shadowColor: '#000',
@@ -167,7 +363,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   titleRow: {
     flexDirection: 'row',
@@ -180,18 +376,171 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
   },
   subtitle: {
-    fontSize: 12,
+    fontSize: 11,
     color: COLORS.textMuted,
-    lineHeight: 17,
-    marginBottom: 16,
+    lineHeight: 15,
+    marginBottom: 12,
   },
+
+  // 1. Timeframe / Interval section
+  sectionBox: {
+    backgroundColor: COLORS.surfaceSubtle,
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  sectionLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  sectionLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    letterSpacing: 0.5,
+    flex: 1,
+  },
+  activeIntervalLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: COLORS.primary,
+  },
+  intervalGrid: {
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'space-between',
+  },
+  intervalChip: {
+    flex: 1,
+    backgroundColor: COLORS.cardElevated,
+    borderRadius: 8,
+    paddingVertical: 6,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  intervalChipSelected: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  intervalChipRecommended: {
+    borderColor: 'rgba(16, 185, 129, 0.4)',
+  },
+  intervalChipText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+  },
+  intervalChipTextSelected: {
+    color: '#FFFFFF',
+  },
+  intervalSubText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+    marginTop: 1,
+  },
+  intervalSubTextSelected: {
+    color: '#E0E7FF',
+  },
+
+  // 2. Minimum Risk Banner
+  minRiskBanner: {
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.35)',
+  },
+  minRiskHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  minRiskTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  minRiskTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.success,
+  },
+  safestTag: {
+    backgroundColor: 'rgba(16, 185, 129, 0.25)',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  safestTagText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: COLORS.success,
+  },
+  minRiskDesc: {
+    fontSize: 10,
+    color: COLORS.textSecondary,
+    lineHeight: 14,
+    marginBottom: 8,
+  },
+  applyMinRiskBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#059669',
+    borderRadius: 8,
+    paddingVertical: 7,
+  },
+  applyMinRiskBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+
+  // 3. Filter tabs
+  filterRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 10,
+  },
+  filterTab: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: COLORS.surfaceSubtle,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+  },
+  filterTabActive: {
+    backgroundColor: COLORS.cardElevated,
+    borderColor: COLORS.primary,
+  },
+  filterTabText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.textMuted,
+  },
+  filterTabTextActive: {
+    color: COLORS.primary,
+  },
+
+  // 4. Strategy Cards List
   strategyList: {
-    marginVertical: 4,
+    flexGrow: 0,
+    maxHeight: 380,
   },
   strategyCard: {
     backgroundColor: COLORS.surfaceSubtle,
     borderRadius: 14,
-    padding: 14,
+    padding: 12,
     marginBottom: 10,
     borderWidth: 1.5,
     borderColor: COLORS.cardBorder,
@@ -217,7 +566,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   strategyName: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
     color: COLORS.textPrimary,
   },
@@ -234,27 +583,70 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   strategyType: {
-    fontSize: 11,
+    fontSize: 10,
     color: COLORS.textMuted,
     marginTop: 2,
   },
   signalPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 6,
     gap: 4,
   },
   signalText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
+  },
+  riskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  riskBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  riskBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  recIntervalPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  recIntervalText: {
+    fontSize: 10,
+    color: COLORS.textMuted,
+    fontWeight: '600',
   },
   strategyDesc: {
     fontSize: 11,
     color: COLORS.textSecondary,
-    lineHeight: 16,
-    marginBottom: 8,
+    lineHeight: 15,
+    marginBottom: 6,
+  },
+  riskNoteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginBottom: 6,
+  },
+  riskNoteText: {
+    fontSize: 10,
+    color: COLORS.textSecondary,
+    flex: 1,
+    lineHeight: 13,
   },
   detailsRow: {
     flexDirection: 'row',
@@ -264,7 +656,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   detailsText: {
     fontSize: 10,
@@ -274,18 +666,18 @@ const styles = StyleSheet.create({
   indicatorsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 5,
   },
   indicatorPill: {
     backgroundColor: COLORS.cardElevated,
-    paddingHorizontal: 7,
+    paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 5,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
   },
   indicatorText: {
-    fontSize: 10,
+    fontSize: 9,
     color: COLORS.textMuted,
     fontWeight: '600',
   },

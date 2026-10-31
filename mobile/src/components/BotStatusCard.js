@@ -2,12 +2,14 @@ import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../constants/theme';
+import { STRATEGIES } from '../services/strategyEngine';
 
 export default function BotStatusCard({ bot = {}, onChangeStrategy }) {
   const signal = bot.current_signal || 'HOLD';
   const strategyName = bot.strategy_name || 'Dual Moving Average (20/50)';
   const strategyType = bot.strategy_type || 'Trend Following';
   const signalDetails = bot.signal_details || 'Evaluating live candle patterns...';
+  const currentStrat = STRATEGIES[bot.strategy_id] || STRATEGIES.DUAL_MA;
 
   const getSignalStyle = (sig) => {
     switch (sig) {
@@ -61,9 +63,16 @@ export default function BotStatusCard({ bot = {}, onChangeStrategy }) {
       <View style={styles.card}>
         {/* Strategy Title & Switch Banner */}
         <View style={styles.stratHeaderRow}>
-          <View>
+          <View style={{ flex: 1, marginRight: 8 }}>
             <Text style={styles.stratNameText}>{strategyName}</Text>
-            <Text style={styles.stratTypeText}>{strategyType}</Text>
+            <View style={styles.stratMetaRow}>
+              <Text style={styles.stratTypeText}>{strategyType}</Text>
+              {currentStrat?.riskBadge ? (
+                <View style={styles.riskBadgePill}>
+                  <Text style={styles.riskBadgeText}>{currentStrat.riskBadge}</Text>
+                </View>
+              ) : null}
+            </View>
           </View>
 
           <TouchableOpacity
@@ -71,7 +80,7 @@ export default function BotStatusCard({ bot = {}, onChangeStrategy }) {
             onPress={onChangeStrategy}
             activeOpacity={0.7}
           >
-            <Text style={styles.changePillText}>Select</Text>
+            <Text style={styles.changePillText}>Change</Text>
             <Ionicons name="chevron-forward" size={12} color={COLORS.primary} />
           </TouchableOpacity>
         </View>
@@ -87,9 +96,15 @@ export default function BotStatusCard({ bot = {}, onChangeStrategy }) {
               </Text>
             </View>
           </View>
-          <View style={styles.candlePill}>
+          <TouchableOpacity
+            style={styles.candlePill}
+            onPress={onChangeStrategy}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="time-outline" size={11} color={COLORS.primary} style={{ marginRight: 3 }} />
             <Text style={styles.candleText}>{bot.interval || '1h'}</Text>
-          </View>
+            <Ionicons name="swap-horizontal" size={10} color={COLORS.primary} style={{ marginLeft: 3 }} />
+          </TouchableOpacity>
         </View>
 
         {/* Bot Parameters */}
@@ -190,7 +205,26 @@ const styles = StyleSheet.create({
   stratTypeText: {
     fontSize: 11,
     color: COLORS.textMuted,
-    marginTop: 2,
+  },
+  stratMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 3,
+    flexWrap: 'wrap',
+  },
+  riskBadgePill: {
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  riskBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: COLORS.success,
   },
   changePill: {
     flexDirection: 'row',

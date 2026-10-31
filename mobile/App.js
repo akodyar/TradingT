@@ -323,6 +323,7 @@ export default function App() {
         visible={strategyModalVisible}
         onClose={() => setStrategyModalVisible(false)}
         currentStrategyId={data?.bot?.strategy_id || 'DUAL_MA'}
+        currentInterval={data?.bot?.interval || '1m'}
         allSignals={data?.all_strategy_signals || {}}
         onSelectStrategy={() => loadData(true)}
       />

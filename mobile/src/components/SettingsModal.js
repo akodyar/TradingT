@@ -25,6 +25,10 @@ import {
   updateBotCredentials,
   setEngineRunning,
 } from '../services/tradingBotManager.js';
+import {
+  requestBatteryOptimizationExemption,
+  registerBackgroundTask,
+} from '../services/backgroundTask.js';
 
 export default function SettingsModal({ visible, onClose, onRefreshData }) {
   const currentBotState = getBotState();
@@ -66,14 +70,21 @@ export default function SettingsModal({ visible, onClose, onRefreshData }) {
   const handleSave = async () => {
     await updateBotCredentials(apiKey, apiSecret);
     await setEngineRunning(isEngineOn);
+    if (isEngineOn) {
+      await registerBackgroundTask();
+    }
     if (onRefreshData) onRefreshData();
     onClose();
   };
 
   const handleOpenAppSettings = () => {
-    if (Platform.OS === 'android') {
+    if (Platform.OS === 'android' || Platform.OS === 'ios') {
       Linking.openSettings();
     }
+  };
+
+  const handleDisableBatteryOptimization = async () => {
+    await requestBatteryOptimizationExemption();
   };
 
   return (
@@ -223,6 +234,14 @@ export default function SettingsModal({ visible, onClose, onRefreshData }) {
                     (Samsung / Xiaomi) In App Switcher, tap the lock icon to prevent system auto-kill.
                   </Text>
                 </View>
+                <TouchableOpacity
+                  style={[styles.batteryBtn, { backgroundColor: COLORS.primary, marginBottom: 4 }]}
+                  onPress={handleDisableBatteryOptimization}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="battery-charging-outline" size={14} color="#FFFFFF" />
+                  <Text style={styles.batteryBtnText}>Disable Battery Optimization (24/7 Run)</Text>
+                </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.batteryBtn}
                   onPress={handleOpenAppSettings}

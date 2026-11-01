@@ -13,6 +13,7 @@ import { getStrategySignal, STRATEGIES } from './strategyEngine.js';
 import {
   sendBuyNotification,
   sendSellNotification,
+  sendBotStatusNotification,
 } from './notificationService.js';
 import { syncBackgroundState } from './backgroundTask.js';
 import {
@@ -29,6 +30,8 @@ let botState = {
   currentStrategyId: 'DUAL_MA',
   position_qty: '0',
   last_candle: null,
+  last_bg_tick: null,
+  bg_tick_count: 0,
   symbol: 'BTCUSDT',
   interval: '1m',
   quoteOrderSize: '20',
@@ -42,17 +45,29 @@ let botState = {
 let _isInitialized = false;
 
 /**
- * Initialize bot state from device persistent storage.
+ * Initialize or reload bot state from device persistent storage.
+ * Always pulls latest position_qty, trades, and background heartbeat stats
+ * so background trades are never overwritten by stale foreground state.
  */
-export async function initBotManager() {
-  if (_isInitialized) return botState;
+export async function initBotManager(forceReload = false) {
   try {
     const loaded = await loadBotStateFromStorage();
-    botState = {
-      ...botState,
-      ...loaded,
-    };
-    _isInitialized = true;
+    if (!_isInitialized || forceReload) {
+      botState = {
+        ...botState,
+        ...loaded,
+      };
+      _isInitialized = true;
+    } else {
+      // Always sync dynamic runtime state written by the 24/7 background task
+      botState.position_qty = loaded.position_qty ?? botState.position_qty;
+      botState.last_candle = loaded.last_candle ?? botState.last_candle;
+      botState.last_bg_tick = loaded.last_bg_tick ?? botState.last_bg_tick;
+      botState.bg_tick_count = loaded.bg_tick_count ?? botState.bg_tick_count;
+      if (Array.isArray(loaded.trades)) {
+        botState.trades = loaded.trades;
+      }
+    }
     syncBackgroundState({
       credentials: botState.credentials,
       symbol: botState.symbol,
@@ -60,6 +75,7 @@ export async function initBotManager() {
       quoteOrderSize: botState.quoteOrderSize,
       strategyId: botState.currentStrategyId,
       position_qty: botState.position_qty,
+      last_candle: botState.last_candle,
       isEngineEnabled: botState.isEngineRunning,
     });
   } catch (e) {
@@ -366,7 +382,16 @@ export async function getDashboardOverview() {
 
   const usdtFree = usdtAsset ? usdtAsset.free_raw : 0;
   const btcFree = btcAsset ? btcAsset.free_raw : 0;
-  const botPositionQty = parseFloat(botState.position_qty || '0');
+  let botPositionQty = parseFloat(botState.position_qty || '0');
+
+  // Reconcile stored position with actual exchange BTC balance so a stale position_qty never blocks buying
+  if (currentPrice > 0 && btcFree * currentPrice < 5) {
+    botPositionQty = 0;
+    botState.position_qty = '0';
+  } else if (botPositionQty > btcFree) {
+    botPositionQty = btcFree;
+    botState.position_qty = btcFree.toString();
+  }
 
   const positions = [
     {
@@ -407,9 +432,11 @@ export async function getDashboardOverview() {
       signal: strategyResult.signal,
       candleTime,
       botPositionQty,
+      btcFree,
       currentPrice,
       balancesList,
       credentials,
+      strategyName: activeStrategy.shortName || activeStrategy.name,
     });
   }
 
@@ -439,6 +466,8 @@ export async function getDashboardOverview() {
       signal_details: strategyResult.details,
       position_qty: botState.position_qty,
       last_candle_time: lastCandleDt,
+      last_bg_tick: botState.last_bg_tick,
+      bg_tick_count: botState.bg_tick_count || 0,
       status: botState.isEngineRunning ? 'RUNNING' : 'PAUSED',
     },
     strategies: STRATEGIES,
@@ -450,13 +479,21 @@ async function runAutomatedTradeCycle({
   signal,
   candleTime,
   botPositionQty,
+  btcFree,
   currentPrice,
   balancesList,
   credentials,
+  strategyName,
 }) {
   try {
     const symbol = botState.symbol;
-    const quoteOrderSize = parseFloat(botState.quoteOrderSize);
+    const quoteOrderSize = parseFloat(botState.quoteOrderSize || '20');
+    const nowTimeStr = new Date().toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
 
     if (signal === 'BUY' && botPositionQty === 0) {
       const usdtItem = balancesList.find((b) => b.asset === 'USDT');
@@ -469,6 +506,7 @@ async function runAutomatedTradeCycle({
 
         if (boughtQty > 0) {
           botState.position_qty = boughtQty.toString();
+          botState.last_candle = candleTime;
           const newTrade = {
             id: order.orderId,
             side: 'BUY',
@@ -478,7 +516,11 @@ async function runAutomatedTradeCycle({
           };
           botState.trades.unshift(newTrade);
           await persistNewTrade(newTrade);
-          await persistBotState({ position_qty: botState.position_qty, last_candle: candleTime });
+          await persistBotState({
+            position_qty: botState.position_qty,
+            last_candle: candleTime,
+            last_bg_tick: nowTimeStr,
+          });
           // 🔔 Notify
           await sendBuyNotification({
             symbol,
@@ -487,20 +529,23 @@ async function runAutomatedTradeCycle({
             quoteSpent: quoteOrderSize,
             orderId: order.orderId,
           });
-          syncBackgroundState({ position_qty: botState.position_qty });
+          syncBackgroundState({
+            position_qty: botState.position_qty,
+            last_candle: candleTime,
+          });
         }
       }
     } else if (signal === 'SELL' && botPositionQty > 0) {
       const step = await fetchExchangeStepSize(symbol);
-      const sellQty = roundStep(botPositionQty, step);
+      const sellQty = roundStep(Math.min(botPositionQty, btcFree || botPositionQty), step);
 
       if (parseFloat(sellQty) > 0) {
         const order = await executeMarketSell(symbol, sellQty, credentials);
         const soldQty = parseFloat(order.executedQty || '0');
         const fillPrice = parseFloat(order.fills?.[0]?.price || String(currentPrice));
-        const remaining = Math.max(0, botPositionQty - soldQty);
 
-        botState.position_qty = remaining.toString();
+        botState.position_qty = '0';
+        botState.last_candle = candleTime;
         const newTrade = {
           id: order.orderId,
           side: 'SELL',
@@ -510,7 +555,11 @@ async function runAutomatedTradeCycle({
         };
         botState.trades.unshift(newTrade);
         await persistNewTrade(newTrade);
-        await persistBotState({ position_qty: botState.position_qty, last_candle: candleTime });
+        await persistBotState({
+          position_qty: '0',
+          last_candle: candleTime,
+          last_bg_tick: nowTimeStr,
+        });
         // 🔔 Notify
         await sendSellNotification({
           symbol,
@@ -519,12 +568,23 @@ async function runAutomatedTradeCycle({
           quoteReceived: soldQty * fillPrice,
           orderId: order.orderId,
         });
-        syncBackgroundState({ position_qty: botState.position_qty });
+        syncBackgroundState({
+          position_qty: '0',
+          last_candle: candleTime,
+        });
       }
     }
 
-    botState.last_candle = candleTime;
-    await persistBotState({ position_qty: botState.position_qty, last_candle: candleTime });
+    // Update persistent status notification
+    await sendBotStatusNotification({
+      signal,
+      strategyName: strategyName || botState.currentStrategyId,
+      interval: botState.interval,
+      price: currentPrice,
+      positionQty: botState.position_qty,
+      lastCheck: nowTimeStr,
+      tickCount: botState.bg_tick_count,
+    });
   } catch (err) {
     console.warn('[BOT] Automated cycle error:', err.message);
   }

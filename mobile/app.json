@@ -9,8 +9,15 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "UIBackgroundModes": ["fetch", "remote-notification"],
-        "NSLocationWhenInUseUsageDescription": "Used to identify region for market data."
+        "UIBackgroundModes": [
+          "location",
+          "fetch",
+          "remote-notification",
+          "processing"
+        ],
+        "NSLocationWhenInUseUsageDescription": "Allow Trading Bot to keep the 24/7 autonomous trading engine running in the background.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow Trading Bot to keep the 24/7 autonomous trading engine running in the background.",
+        "NSLocationAlwaysUsageDescription": "Allow Trading Bot to keep the 24/7 autonomous trading engine running in the background."
       }
     },
     "android": {
@@ -50,7 +57,12 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow Trading Bot to keep the 24/7 autonomous trading engine running in the background."
+          "locationAlwaysAndWhenInUsePermission": "Allow Trading Bot to keep the 24/7 autonomous trading engine running in the background.",
+          "locationAlwaysPermission": "Allow Trading Bot to keep the 24/7 autonomous trading engine running in the background.",
+          "locationWhenInUsePermission": "Allow Trading Bot to keep the 24/7 autonomous trading engine running in the background.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "isIosBackgroundLocationEnabled": true
         }
       ],
       "expo-task-manager",

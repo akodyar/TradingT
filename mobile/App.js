@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
   Platform,
   StatusBar as RNStatusBar,
-  Alert,
+  AppState,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,7 +29,7 @@ import {
   registerBackgroundTask,
   syncBackgroundState,
   isBackgroundTaskRegistered,
-  BACKGROUND_TRADE_TASK,
+  runTradingEngineCycle,
 } from './src/services/backgroundTask.js';
 
 import Header from './src/components/Header';
@@ -60,27 +60,22 @@ export default function App() {
   const notifListenerRef = useRef(null);
   const notifResponseRef = useRef(null);
 
-  // ── Setup: permissions + background task ──
+  // ── Setup: permissions + 24/7 background engine ──
   useEffect(() => {
     (async () => {
       // 0. Initialize persistent bot state from disk
-      await initBotManager();
+      await initBotManager(true);
 
-      // 1. Request notification permissions
+      // 1. Request notification permissions (non-blocking for background engine)
       const granted = await requestNotificationPermissions();
       setNotifPermission(granted);
 
-      if (granted) {
-        // 2. Register background fetch task
-        const registered = await registerBackgroundTask();
-        setBgTaskActive(registered);
+      // 2. ALWAYS register 24/7 Foreground Service + continuous background loop
+      const registered = await registerBackgroundTask();
+      const alreadyOn = await isBackgroundTaskRegistered();
+      setBgTaskActive(Boolean(registered || alreadyOn));
 
-        // 3. Check if already registered
-        const alreadyOn = await isBackgroundTaskRegistered();
-        setBgTaskActive(alreadyOn);
-      }
-
-      // 4. Listen for notifications while app is in foreground
+      // 3. Listen for notifications while app is in foreground
       notifListenerRef.current = Notifications.addNotificationReceivedListener(
         (notification) => {
           const { type, qty, price, symbol } = notification.request.content.data || {};
@@ -92,7 +87,7 @@ export default function App() {
         }
       );
 
-      // 5. Listen for user tapping a notification
+      // 4. Listen for user tapping a notification
       notifResponseRef.current = Notifications.addNotificationResponseReceivedListener(
         (response) => {
           const { type } = response.notification.request.content.data || {};
@@ -103,9 +98,17 @@ export default function App() {
       );
     })();
 
+    // 5. Refresh UI state immediately when user returns to app from background
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        loadData(false);
+      }
+    });
+
     return () => {
       notifListenerRef.current?.remove();
       notifResponseRef.current?.remove();
+      appStateSub?.remove();
     };
   }, []);
 
@@ -185,12 +188,16 @@ export default function App() {
           onPress={async () => {
             const active = await registerBackgroundTask();
             setBgTaskActive(active);
+            await runTradingEngineCycle('manual');
+            loadData(false);
           }}
           activeOpacity={0.7}
         >
           <View style={[styles.statusDot, { backgroundColor: bgTaskActive ? COLORS.success : COLORS.warning }]} />
           <Text style={styles.statusPillText}>
-            {bgTaskActive ? '24/7 Engine ON' : '24/7 Engine OFF (Tap)'}
+            {bgTaskActive
+              ? `24/7 Engine ON${data?.bot?.bg_tick_count ? ` · #${data.bot.bg_tick_count}` : ''}`
+              : '24/7 Engine OFF (Tap)'}
           </Text>
         </TouchableOpacity>
 

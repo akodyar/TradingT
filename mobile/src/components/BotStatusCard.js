@@ -134,7 +134,8 @@ export default function BotStatusCard({ bot = {}, onChangeStrategy }) {
         <View style={styles.footerRow}>
           <Ionicons name="time-outline" size={13} color={COLORS.textMuted} />
           <Text style={styles.footerTime}>
-            Last Checked Candle: {bot.last_candle_time || 'Syncing...'}
+            Candle: {bot.last_candle_time || 'Syncing...'}
+            {bot.last_bg_tick ? ` · 24/7 Tick: ${bot.last_bg_tick} (#${bot.bg_tick_count || 1})` : ''}
           </Text>
         </View>
       </View>

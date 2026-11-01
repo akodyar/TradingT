@@ -13,6 +13,8 @@ export const DEFAULT_BOT_STATE = {
   currentStrategyId: 'DUAL_MA',
   position_qty: '0',
   last_candle: null,
+  last_bg_tick: null,
+  bg_tick_count: 0,
   symbol: 'BTCUSDT',
   interval: '1m',
   quoteOrderSize: '20',
@@ -96,13 +98,30 @@ export async function persistBotConfig(config) {
 }
 
 /**
- * Persist active position quantity and last closed candle timestamp
+ * Persist active position quantity, last traded candle timestamp, and background heartbeat stats
  */
 export async function persistBotState(state) {
   try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.STATE);
+    const existing = raw ? JSON.parse(raw) : {};
     const toSave = {
-      position_qty: state.position_qty ?? '0',
-      last_candle: state.last_candle ?? null,
+      ...existing,
+      position_qty:
+        state.position_qty !== undefined
+          ? state.position_qty
+          : existing.position_qty ?? '0',
+      last_candle:
+        state.last_candle !== undefined
+          ? state.last_candle
+          : existing.last_candle ?? null,
+      last_bg_tick:
+        state.last_bg_tick !== undefined
+          ? state.last_bg_tick
+          : existing.last_bg_tick ?? null,
+      bg_tick_count:
+        state.bg_tick_count !== undefined
+          ? state.bg_tick_count
+          : existing.bg_tick_count ?? 0,
     };
     await AsyncStorage.setItem(STORAGE_KEYS.STATE, JSON.stringify(toSave));
   } catch (err) {

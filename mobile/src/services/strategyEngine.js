@@ -193,7 +193,7 @@ export function calculateBollingerBands(closes, period = 20, multiplier = 2) {
 // -------------------------------------------------------------
 
 export function evaluateDualMA(candles) {
-  if (!candles || candles.length < 55) return { signal: 'HOLD', details: 'Insufficient candles (<55)' };
+  if (!candles || candles.length < 52) return { signal: 'HOLD', details: 'Insufficient candles (<52)' };
   const closes = candles.map((c) => parseFloat(c[4]));
   const shortMA = calculateSMAHistory(closes, 20);
   const longMA = calculateSMAHistory(closes, 50);
@@ -216,6 +216,18 @@ export function evaluateDualMA(candles) {
       details: `Death Cross: MA20 ($${currShort.toFixed(1)}) crossed below MA50 ($${currLong.toFixed(1)})`,
     };
   }
+  if (currShort > currLong) {
+    return {
+      signal: 'BUY',
+      details: `Bullish Trend: MA20 ($${currShort.toFixed(1)}) > MA50 ($${currLong.toFixed(1)})`,
+    };
+  }
+  if (currShort < currLong) {
+    return {
+      signal: 'SELL',
+      details: `Bearish Trend: MA20 ($${currShort.toFixed(1)}) < MA50 ($${currLong.toFixed(1)})`,
+    };
+  }
   return {
     signal: 'HOLD',
     details: `MA20 ($${currShort?.toFixed(1) || '0'}) | MA50 ($${currLong?.toFixed(1) || '0'})`,
@@ -227,26 +239,26 @@ export function evaluateRSI(candles) {
   const closes = candles.map((c) => parseFloat(c[4]));
   const rsi = calculateRSI(closes, 14);
 
-  if (rsi < 30) {
+  if (rsi < 35) {
     return {
       signal: 'BUY',
-      details: `RSI Oversold at ${rsi.toFixed(1)} (< 30) - Potential upward bounce`,
+      details: `RSI Oversold at ${rsi.toFixed(1)} (< 35) - Upward reversal signal`,
     };
   }
-  if (rsi > 70) {
+  if (rsi > 65) {
     return {
       signal: 'SELL',
-      details: `RSI Overbought at ${rsi.toFixed(1)} (> 70) - Potential downward pullback`,
+      details: `RSI Overbought at ${rsi.toFixed(1)} (> 65) - Downward pullback signal`,
     };
   }
   return {
     signal: 'HOLD',
-    details: `RSI Neutral at ${rsi.toFixed(1)} (Range: 30 - 70)`,
+    details: `RSI Neutral at ${rsi.toFixed(1)} (Range: 35 - 65)`,
   };
 }
 
 export function evaluateEMACross(candles) {
-  if (!candles || candles.length < 30) return { signal: 'HOLD', details: 'Insufficient candles' };
+  if (!candles || candles.length < 25) return { signal: 'HOLD', details: 'Insufficient candles' };
   const closes = candles.map((c) => parseFloat(c[4]));
   const emaFast = calculateEMAHistory(closes, 9);
   const emaSlow = calculateEMAHistory(closes, 21);
@@ -267,6 +279,18 @@ export function evaluateEMACross(candles) {
     return {
       signal: 'SELL',
       details: `EMA 9 ($${currFast.toFixed(1)}) crossed below EMA 21 ($${currSlow.toFixed(1)})`,
+    };
+  }
+  if (currFast > currSlow) {
+    return {
+      signal: 'BUY',
+      details: `Bullish Momentum: EMA 9 ($${currFast.toFixed(1)}) > EMA 21 ($${currSlow.toFixed(1)})`,
+    };
+  }
+  if (currFast < currSlow) {
+    return {
+      signal: 'SELL',
+      details: `Bearish Momentum: EMA 9 ($${currFast.toFixed(1)}) < EMA 21 ($${currSlow.toFixed(1)})`,
     };
   }
   return {
@@ -301,7 +325,7 @@ export function evaluateBollinger(candles) {
 }
 
 export function evaluateMACD(candles) {
-  if (!candles || candles.length < 40) return { signal: 'HOLD', details: 'Insufficient candles' };
+  if (!candles || candles.length < 36) return { signal: 'HOLD', details: 'Insufficient candles' };
   const closes = candles.map((c) => parseFloat(c[4]));
   const ema12 = calculateEMAHistory(closes, 12);
   const ema26 = calculateEMAHistory(closes, 26);
@@ -337,6 +361,18 @@ export function evaluateMACD(candles) {
     return {
       signal: 'SELL',
       details: `MACD Line (${currM.toFixed(1)}) crossed below Signal Line (${currS.toFixed(1)})`,
+    };
+  }
+  if (currM > currS) {
+    return {
+      signal: 'BUY',
+      details: `Bullish MACD (${currM.toFixed(1)}) > Signal (${currS.toFixed(1)})`,
+    };
+  }
+  if (currM < currS) {
+    return {
+      signal: 'SELL',
+      details: `Bearish MACD (${currM.toFixed(1)}) < Signal (${currS.toFixed(1)})`,
     };
   }
   return {

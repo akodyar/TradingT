@@ -1,3 +1,4 @@
+import './src/services/backgroundTask.js';
 import { registerRootComponent } from 'expo';
 
 import App from './App';

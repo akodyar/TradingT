@@ -1,5 +1,7 @@
 import * as BackgroundFetch from 'expo-background-fetch';
 import * as TaskManager from 'expo-task-manager';
+import * as Location from 'expo-location';
+import { Platform } from 'react-native';
 
 import {
   fetchAccountBalances,
@@ -43,12 +45,13 @@ export function getBackgroundState() {
   return _bgCache;
 }
 
-// ─────────────────────────────────────────────
-// TaskManager definition (runs headless even when app is closed / terminated)
-// ─────────────────────────────────────────────
-TaskManager.defineTask(BACKGROUND_TRADE_TASK, async () => {
+/**
+ * Core trading execution logic.
+ * Executed continuously by Android Foreground Service & WorkManager.
+ */
+export async function runTradingEngineCycle() {
   try {
-    // 1. ALWAYS load persisted settings and credentials from device storage
+    // 1. ALWAYS load persisted settings and credentials from device disk
     const persisted = await loadBotStateFromStorage();
 
     const isEngineEnabled =
@@ -57,8 +60,8 @@ TaskManager.defineTask(BACKGROUND_TRADE_TASK, async () => {
         : persisted.isEngineRunning;
 
     if (!isEngineEnabled) {
-      console.log('[BG Task] Bot engine is disabled in settings. Skipping.');
-      return BackgroundFetch.BackgroundFetchResult.NoData;
+      console.log('[24/7 Engine] Bot is disabled in settings. Skipping.');
+      return BackgroundFetch.BackgroundFetchResult?.NoData || 'NO_DATA';
     }
 
     const credentials = {
@@ -87,8 +90,8 @@ TaskManager.defineTask(BACKGROUND_TRADE_TASK, async () => {
     let lastCandle = persisted.last_candle || _bgCache.last_candle || null;
 
     if (!credentials.apiKey) {
-      console.warn('[BG Task] No API key available.');
-      return BackgroundFetch.BackgroundFetchResult.Failed;
+      console.warn('[24/7 Engine] No API key available.');
+      return BackgroundFetch.BackgroundFetchResult?.Failed || 'FAILED';
     }
 
     // 2. Fetch market data directly from Binance Spot Testnet
@@ -116,10 +119,10 @@ TaskManager.defineTask(BACKGROUND_TRADE_TASK, async () => {
     });
 
     console.log(
-      `[BG Task] 24/7 Tick | Signal: ${signal} | Price: $${currentPrice} | Position: ${positionQty} BTC`
+      `[24/7 Engine Tick] Signal: ${signal} | Price: $${currentPrice} | Position: ${positionQty} BTC | Time: ${now}`
     );
 
-    // Send heartbeat notification when signal is active or changing
+    // Send status heartbeat notification when signal is BUY or SELL
     if (signal !== 'HOLD') {
       await sendBotStatusNotification({
         signal,
@@ -208,7 +211,6 @@ TaskManager.defineTask(BACKGROUND_TRADE_TASK, async () => {
           });
         }
       } else {
-        // Advance last_candle to avoid repeated checks on same candle
         _bgCache.last_candle = candleTime;
         await persistBotState({
           position_qty: positionQty,
@@ -217,56 +219,112 @@ TaskManager.defineTask(BACKGROUND_TRADE_TASK, async () => {
       }
     }
 
-    return BackgroundFetch.BackgroundFetchResult.NewData;
+    return BackgroundFetch.BackgroundFetchResult?.NewData || 'NEW_DATA';
   } catch (err) {
-    console.error('[BG Task] Error:', err.message);
+    console.error('[24/7 Engine] Error:', err.message);
     await sendErrorNotification({ message: err.message });
-    return BackgroundFetch.BackgroundFetchResult.Failed;
+    return BackgroundFetch.BackgroundFetchResult?.Failed || 'FAILED';
   }
+}
+
+// ─────────────────────────────────────────────
+// TaskManager definition (runs headless even when app is closed / terminated)
+// ─────────────────────────────────────────────
+TaskManager.defineTask(BACKGROUND_TRADE_TASK, async () => {
+  return await runTradingEngineCycle();
 });
 
 // ─────────────────────────────────────────────
-// Registration helpers
+// 24/7 Android Foreground Service Management
 // ─────────────────────────────────────────────
 
 /**
- * Register the background fetch task with Android WorkManager.
- * Runs periodically even if the app process is terminated.
+ * Start the true 24/7 Android Foreground Service.
+ * Runs continuously in the background even if the app is closed or screen is off.
  */
-export async function registerBackgroundTask() {
+export async function register247ForegroundService() {
   try {
-    const status = await BackgroundFetch.getStatusAsync();
-    const isAvailable =
-      status === BackgroundFetch.BackgroundFetchStatus.Available;
+    if (Platform.OS === 'android') {
+      // 1. Request foreground permissions
+      const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+      if (fgStatus !== 'granted') {
+        console.warn('[24/7 Service] Foreground location permission not granted');
+      }
 
-    if (!isAvailable) {
-      console.warn('[BG] Background fetch not available on this device/OS');
-      return false;
+      // 2. Request background ("Allow all the time") permissions
+      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+      if (bgStatus !== 'granted') {
+        console.warn('[24/7 Service] Background location permission not granted');
+      }
+
+      // 3. Start Android Foreground Service with persistent status notification
+      const isAlreadyRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_TRADE_TASK);
+      if (!isAlreadyRunning) {
+        await Location.startLocationUpdatesAsync(BACKGROUND_TRADE_TASK, {
+          accuracy: Location.Accuracy.Lowest, // Minimum power consumption
+          timeInterval: 30000,               // Run every 30 seconds
+          distanceInterval: 10000,           // Doesn't require movement
+          deferredUpdatesInterval: 30000,
+          foregroundService: {
+            notificationTitle: 'Trading Bot 24/7 Engine Active',
+            notificationBody: 'Evaluating strategies and trading autonomously.',
+            notificationColor: '#3B82F6',
+            killServiceOnDestroy: false,     // Keeps running even if app is terminated
+          },
+        });
+        console.log('[24/7 Service] Android Foreground Service active ✅');
+      }
     }
 
-    await BackgroundFetch.registerTaskAsync(BACKGROUND_TRADE_TASK, {
-      minimumInterval: 15 * 60, // 15 minutes (Android WorkManager interval)
-      stopOnTerminate: false,   // Keeps running even if app is terminated
-      startOnBoot: true,        // Automatically resumes after device reboot
-    });
+    // 4. Also register WorkManager background fetch as secondary layer
+    try {
+      await BackgroundFetch.registerTaskAsync(BACKGROUND_TRADE_TASK, {
+        minimumInterval: 15 * 60,
+        stopOnTerminate: false,
+        startOnBoot: true,
+      });
+    } catch (_) {}
 
-    console.log('[BG] 24/7 Background task registered successfully ✅');
     return true;
   } catch (err) {
-    console.warn('[BG] Could not register background task:', err.message);
-    return false;
+    console.warn('[24/7 Service] Error starting foreground service:', err.message);
+    try {
+      await BackgroundFetch.registerTaskAsync(BACKGROUND_TRADE_TASK, {
+        minimumInterval: 15 * 60,
+        stopOnTerminate: false,
+        startOnBoot: true,
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 }
 
-export async function unregisterBackgroundTask() {
+export async function stop247ForegroundService() {
+  try {
+    const isStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_TRADE_TASK);
+    if (isStarted) {
+      await Location.stopLocationUpdatesAsync(BACKGROUND_TRADE_TASK);
+    }
+  } catch (_) {}
   try {
     await BackgroundFetch.unregisterTaskAsync(BACKGROUND_TRADE_TASK);
-    console.log('[BG] Background task unregistered');
-  } catch (_) {
-    // May throw if not registered
-  }
+  } catch (_) {}
+  console.log('[24/7 Service] Background service stopped');
 }
 
-export async function isBackgroundTaskRegistered() {
+export async function is247ServiceActive() {
+  try {
+    if (Platform.OS === 'android') {
+      const isLocStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_TRADE_TASK);
+      if (isLocStarted) return true;
+    }
+  } catch (_) {}
   return TaskManager.isTaskRegisteredAsync(BACKGROUND_TRADE_TASK);
 }
+
+// Backward compatibility alias
+export const registerBackgroundTask = register247ForegroundService;
+export const isBackgroundTaskRegistered = is247ServiceActive;
+export const unregisterBackgroundTask = stop247ForegroundService;

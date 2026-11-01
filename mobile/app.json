@@ -23,7 +23,11 @@
         "POST_NOTIFICATIONS",
         "WAKE_LOCK",
         "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
         "FOREGROUND_SERVICE_DATA_SYNC",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
         "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
       ],
       "adaptiveIcon": {
@@ -41,6 +45,12 @@
           "color": "#3B82F6",
           "defaultChannel": "trading-alerts",
           "sounds": []
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Trading Bot to keep the 24/7 autonomous trading engine running in the background."
         }
       ],
       "expo-task-manager",

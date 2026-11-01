@@ -200,6 +200,12 @@ export default function SettingsModal({ visible, onClose, onRefreshData }) {
                   To ensure the bot continues evaluating strategies and executing trades even when this app is closed or terminated:
                 </Text>
                 <View style={styles.bgGuideStep}>
+                  <Ionicons name="navigate-outline" size={14} color={COLORS.primary} />
+                  <Text style={styles.bgGuideStepText}>
+                    Set Location to <Text style={{ color: COLORS.success, fontWeight: '700' }}>Allow all the time</Text> (required for Android Foreground Service to keep CPU active 24/7).
+                  </Text>
+                </View>
+                <View style={styles.bgGuideStep}>
                   <Ionicons name="battery-charging-outline" size={14} color={COLORS.warning} />
                   <Text style={styles.bgGuideStepText}>
                     Set Battery Optimization to <Text style={{ color: COLORS.success, fontWeight: '700' }}>Unrestricted</Text> so Android never sleeps the engine.

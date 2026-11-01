@@ -180,12 +180,19 @@ export default function App() {
       {/* Background task + notification status bar */}
       <View style={styles.statusStrip}>
         {/* BG Task indicator */}
-        <View style={styles.statusPill}>
+        <TouchableOpacity
+          style={styles.statusPill}
+          onPress={async () => {
+            const active = await registerBackgroundTask();
+            setBgTaskActive(active);
+          }}
+          activeOpacity={0.7}
+        >
           <View style={[styles.statusDot, { backgroundColor: bgTaskActive ? COLORS.success : COLORS.warning }]} />
           <Text style={styles.statusPillText}>
-            {bgTaskActive ? 'BG Engine ON' : 'BG Engine OFF'}
+            {bgTaskActive ? '24/7 Engine ON' : '24/7 Engine OFF (Tap)'}
           </Text>
-        </View>
+        </TouchableOpacity>
 
         {/* Notification permission indicator */}
         <View style={styles.statusPill}>
